@@ -28,14 +28,14 @@ The MongoDB instance must support transactions; standalone MongoDB without a rep
 - Each dress's listed rental price and separate replacement value
 - Inventory-date collision protection through uniquely indexed per-product per-calendar-day slots and MongoDB transaction
 - Payment method cash / bank transfer
-- Under 300k: zero standard deposit and required CCCD two-side **manual confirmation flag** (secure image upload still pending)
+- Under 300k: zero standard deposit and required CCCD two-side **manual confirmation flag** (encrypted private upload implemented (end-to-end security review still pending))
 - Above 300k: 500k collateral to be collected at pickup, plus upfront rental payment
 - Provincial rentals: same listed rental price and deposit equal to replacement value of the **dress**, due before dispatch; South / Central / North calculated -2 / -3 / -4 calendar days
 - Tomorrow's handover / dispatch / preparation board, listing dress, shoes, bag and accessories
 - Separately tracked rental receipts and refundable collateral receipts/refunds
 - Product image upload using Cloudinary signed upload response
 
-**Not yet shipped:** actual secure CCCD file handling; ported employee, permissions, attendance, schedules, payroll and manager/admin approval; full item-by-item return inspection and photo evidence; polished photo gallery management; production deployment. The current temporary admin login is only for initial development.
+**Not yet shipped:** ported employee, permissions, attendance, schedules, payroll and manager/admin approval; photo evidence of garment condition at handover/return; complete integration tests with real MongoDB and Cloudinary; production deployment. Two-sided CCCD encrypted storage, item-by-item handover/return checklists and photo gallery management have initial implementations but require security and end-to-end acceptance testing. The temporary admin login is for development only.
 
 ## Important business rules / no assumptions
 - Exact 300,000 VND policy is **undefined** and blocked at order creation.
@@ -50,3 +50,7 @@ No production environment was created, modified or deployed. Use distinct hostin
 
 ## Repository privacy
 The GitHub repository was observed as **Public** on creation. Change its visibility to **Private** before adding internal operational code, private information or business datasets.
+
+## Current delivery status (2026-11-21)
+
+Business endpoints and screens now include availability batch preview, dress-photo gallery cover/reorder/delete, encrypted two-side identity upload, per-item handover/packing checklist, per-item return inspection, and deposit-refund gate. These still need end-to-end proof on dedicated test infrastructure. Source HR code in the private 79 Sports repository must **not** be published into this currently public repository. Make this repository Private first; only then port the original workforce modules and run their regression suite. No production deployment has been performed.
