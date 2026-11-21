@@ -25,7 +25,7 @@ app.use(cors({origin:FRONTEND_URL,credentials:true}));
 app.use(express.json({limit:'128kb'}));
 app.use(cookieParser());
 app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next();});
-let db:Db;
+let db!:Db;
 type Product = { _id:string, name:string, sku:string, category:'DRESS'|'SHOES'|'BAG'|'ACCESSORY', size?:string,color?:string,rentalPrice:number,replacementValue:number,photos:{publicId:string,url:string}[],status:'ACTIVE'|'MAINTENANCE'|'RETIRED',createdAt:Date };
 type Line = {productId:string,name:string,category:Product['category'],rentalPrice:number,replacementValue:number};
 type Order = {_id:string, customerName:string, phone:string, channel:'ONLINE'|'WALK_IN',wearDay:string,handoverDay:string,returnDay:string,kind:'LOCAL'|'PROVINCE',region?:Region,address?:string,carrier?:string,tracking?:string,items:Line[],preparation:{alteration:string,rewash:boolean,notes:string},paymentMethod:'CASH'|'BANK_TRANSFER',rentTotal:number,finance:{rentPaid:number,depositPaid:number,depositRefunded:number},depositRequired:number,depositDue:'NONE'|'PICKUP'|'DISPATCH',identityRequired:boolean,identityVerified:boolean,status:'CONFIRMED'|'PREPARING'|'READY'|'HANDED_OVER'|'SHIPPED'|'RETURNED'|'COMPLETED'|'CANCELED',createdAt:Date, updatedAt:Date};
