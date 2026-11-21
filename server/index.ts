@@ -248,8 +248,10 @@ app.get('/api/dashboard/tomorrow',asyncRoute(async(req,res)=>{
  const field=(type:string)=>parts.find(p=>p.type===type)?.value||'';
  const tzDate=field('year')+'-'+field('month')+'-'+field('day');
  const day=shiftDay(tzDate,1);
- const docs=await orders().find({handoverDay:day,status:{$nin:['CANCELED','COMPLETED']}}).toArray();
- res.json({day,deliveries:docs.filter(x=>x.kind==='LOCAL'),dispatches:docs.filter(x=>x.kind==='PROVINCE'),preparation:docs.filter(x=>x.preparation.rewash||x.preparation.alteration||x.preparation.notes)});
+ const docs=await orders().find({handoverDay:day,status:{$in:['CONFIRMED','PREPARING','READY']}}).toArray();
+ const overdueReturns=await orders().find({returnDay:{$lt:tzDate},status:{$in:['HANDED_OVER','SHIPPED']}}).toArray();
+ const pendingRefunds=await orders().find({status:'RETURNED','finance.depositPaid':{$gt:0}}).toArray();
+ res.json({day,deliveries:docs.filter(x=>x.kind==='LOCAL'),dispatches:docs.filter(x=>x.kind==='PROVINCE'),preparation:docs.filter(x=>x.preparation.rewash||x.preparation.alteration||x.preparation.notes),overdueReturns,pendingRefunds:pendingRefunds.filter(x=>x.finance.depositPaid>x.finance.depositRefunded)});
 }));
 app.get('/api/dashboard/financial',asyncRoute(async(req,res)=>{
  const transactions=await payments().find({}).toArray();
