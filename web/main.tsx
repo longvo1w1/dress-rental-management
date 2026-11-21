@@ -2,6 +2,7 @@ import React, {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {CalendarDays,ClipboardList,Package,Wallet,Shirt,LogOut,Plus,UploadCloud} from 'lucide-react';
 import './style.css';
+import {dispatchDay,type Region} from '../shared/rules';
 
 type Photo={publicId:string,url:string};
 type Product={_id:string,sku:string,name:string,category:'DRESS'|'SHOES'|'BAG'|'ACCESSORY',rentalPrice:number,replacementValue:number,photos:Photo[],size?:string,status:string};
@@ -31,6 +32,8 @@ function App(){
  const [loading,setLoading]=useState(false);
  const [newProduct,setNewProduct]=useState({sku:'',name:'',category:'DRESS',size:'',color:'',rentalPrice:0,replacementValue:0});
  const [draft,setDraft]=useState({customerName:'',phone:'',channel:'WALK_IN',wearDay:today(),handoverDay:today(),returnDay:today(),kind:'LOCAL',region:'SOUTH',address:'',carrier:'',productIds:[] as string[],alteration:'',rewash:false,notes:'',paymentMethod:'CASH'});
+ const [busyProductIds,setBusyProductIds]=useState<string[]>([]);
+ const [availabilityError,setAvailabilityError]=useState('');
  const [selectedPhotoProduct,setSelectedPhotoProduct]=useState<string>('');
  const [photoUploading,setPhotoUploading]=useState(false);
  const refresh=async()=>{
@@ -40,6 +43,16 @@ function App(){
   }catch(e){if(String(e).includes('đăng nhập'))setAuthenticated(false);else setError((e as Error).message);}
  };
  useEffect(()=>{refresh()},[]);
+ useEffect(()=>{
+  if(!authenticated)return;
+  let active=true;
+  const from=draft.kind==='PROVINCE'?dispatchDay(draft.wearDay,draft.region as Region):draft.handoverDay;
+  if(from>draft.returnDay){setAvailabilityError('Ngày trả phải từ ngày giao hoặc ngày gửi trở đi');return;}
+  send<{busyProductIds:string[]}>('/availability?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(draft.returnDay))
+   .then(result=>{if(active){setBusyProductIds(result.busyProductIds);setAvailabilityError('')}})
+   .catch(error=>{if(active){setBusyProductIds([]);setAvailabilityError((error as Error).message)}});
+  return ()=>{active=false};
+ },[authenticated,draft.kind,draft.wearDay,draft.region,draft.handoverDay,draft.returnDay]);
  const run=async(fn:()=>Promise<unknown>)=>{
   setError('');setNotice('');setLoading(true);
   try{await fn();setNotice('Đã lưu thành công');await refresh()}catch(e){setError((e as Error).message)}finally{setLoading(false)}
@@ -118,7 +131,7 @@ function App(){
        <label>Ngày khách trả dự kiến<input type="date" required value={draft.returnDay} onChange={e=>setDraft({...draft,returnDay:e.target.value})}/></label>
        <label>Hình thức thuê<select value={draft.kind} onChange={e=>setDraft({...draft,kind:e.target.value})}><option value="LOCAL">Tại shop</option><option value="PROVINCE">Gửi tỉnh</option></select></label>
        {draft.kind==='PROVINCE'&&<><label>Khu vực<select value={draft.region} onChange={e=>setDraft({...draft,region:e.target.value})}><option value="SOUTH">Miền Nam — gửi trước 2 ngày</option><option value="CENTRAL">Miền Trung — gửi trước 3 ngày</option><option value="NORTH">Miền Bắc — gửi trước 4 ngày</option></select></label><label className="wide">Địa chỉ nhận hàng<input required value={draft.address} onChange={e=>setDraft({...draft,address:e.target.value})}/></label><label>Đơn vị vận chuyển<input value={draft.carrier} onChange={e=>setDraft({...draft,carrier:e.target.value})}/></label></>}
-       <div className="wide product-picker"><h3>Chọn váy, giày, túi, phụ kiện</h3>{products.map(p=><label key={p._id} className="option"><input type="checkbox" checked={draft.productIds.includes(p._id)} onChange={e=>setDraft({...draft,productIds:e.target.checked?[...draft.productIds,p._id]:draft.productIds.filter(x=>x!==p._id)})}/>{p.photos[0]&&<img src={p.photos[0].url} alt=""/>}<span>{CAT[p.category]} · {p.name} ({p.sku})</span><b>{money(p.rentalPrice)}</b></label>)}</div>
+       <div className="wide product-picker"><h3>Chọn váy, giày, túi, phụ kiện — kiểm tra lịch theo ngày mặc và ngày trả</h3>{availabilityError&&<p className="error">{availabilityError}</p>}{products.map(p=><label key={p._id} className="option"><input type="checkbox" disabled={busyProductIds.includes(p._id)&&!draft.productIds.includes(p._id)} checked={draft.productIds.includes(p._id)} onChange={e=>setDraft({...draft,productIds:e.target.checked?[...draft.productIds,p._id]:draft.productIds.filter(x=>x!==p._id)})}/>{p.photos[0]&&<img src={p.photos[0].url} alt=""/>}<span>{CAT[p.category]} · {p.name} ({p.sku}) {busyProductIds.includes(p._id)?<strong className="error">· Đã có lịch — chọn mẫu khác</strong>:<small>· Còn lịch</small>}</span><b>{money(p.rentalPrice)}</b></label>)}</div>
        <label className="wide">Khách hàng<input required value={draft.customerName} onChange={e=>setDraft({...draft,customerName:e.target.value})}/></label>
        <label>Số điện thoại<input required value={draft.phone} onChange={e=>setDraft({...draft,phone:e.target.value})}/></label>
        <label>Thanh toán<select value={draft.paymentMethod} onChange={e=>setDraft({...draft,paymentMethod:e.target.value})}><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label>
@@ -127,7 +140,7 @@ function App(){
        <label className="wide">Ghi chú chuẩn bị<input value={draft.notes} onChange={e=>setDraft({...draft,notes:e.target.value})}/></label>
        <div className="wide total"><span>Tổng giá thuê niêm yết</span><strong>{money(rent)}</strong></div>
        {rent===300000&&<p className="wide error">Chưa có quy định với đơn đúng 300.000đ; không thể chốt trước khi shop xác nhận.</p>}
-       <button className="wide" disabled={loading||!draft.productIds.length||rent===300000}>Kiểm tra lịch và chốt đơn</button>
+       <button className="wide" disabled={loading||!draft.productIds.length||rent===300000||!!availabilityError||draft.productIds.some(id=>busyProductIds.includes(id))}>Kiểm tra lịch và chốt đơn</button>
       </form>
     </details>
     <h2>Danh sách đơn thuê</h2><div className="order-grid">{orders.map(o=><OrderPanel key={o._id} order={o} loading={loading} onAct={run}/>)}</div>
