@@ -28,7 +28,7 @@ app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next();});
 let db:Db;
 type Product = { _id:string, name:string, sku:string, category:'DRESS'|'SHOES'|'BAG'|'ACCESSORY', size?:string,color?:string,rentalPrice:number,replacementValue:number,photos:{publicId:string,url:string}[],status:'ACTIVE'|'MAINTENANCE'|'RETIRED',createdAt:Date };
 type Line = {productId:string,name:string,category:Product['category'],rentalPrice:number,replacementValue:number};
-type Order = {_id:string, customerName:string, phone:string, channel:'ONLINE'|'WALK_IN',wearDay:string,handoverDay:string,returnDay:string,kind:'LOCAL'|'PROVINCE',region?:Region,address?:string,carrier?:string,tracking?:string,items:Line[],preparation:{alteration:string,rewash:boolean,notes:string},paymentMethod:'CASH'|'BANK_TRANSFER',rentTotal:number,depositRequired:number,depositDue:'NONE'|'PICKUP'|'DISPATCH',identityRequired:boolean,identityVerified:boolean,status:'CONFIRMED'|'PREPARING'|'READY'|'HANDED_OVER'|'SHIPPED'|'RETURNED'|'COMPLETED'|'CANCELED',createdAt:Date, updatedAt:Date};
+type Order = {_id:string, customerName:string, phone:string, channel:'ONLINE'|'WALK_IN',wearDay:string,handoverDay:string,returnDay:string,kind:'LOCAL'|'PROVINCE',region?:Region,address?:string,carrier?:string,tracking?:string,items:Line[],preparation:{alteration:string,rewash:boolean,notes:string},paymentMethod:'CASH'|'BANK_TRANSFER',rentTotal:number,finance:{rentPaid:number,depositPaid:number,depositRefunded:number},depositRequired:number,depositDue:'NONE'|'PICKUP'|'DISPATCH',identityRequired:boolean,identityVerified:boolean,status:'CONFIRMED'|'PREPARING'|'READY'|'HANDED_OVER'|'SHIPPED'|'RETURNED'|'COMPLETED'|'CANCELED',createdAt:Date, updatedAt:Date};
 type Slot={_id:string,orderId:string,productId:string,day:string};
 type Payment={_id:string,orderId:string,kind:'RENT'|'DEPOSIT_COLLECT'|'DEPOSIT_REFUND',amount:number,method:'CASH'|'BANK_TRANSFER',createdAt:Date};
 type Audit={_id:string,action:string,orderId?:string,details?:object,at:Date};
@@ -144,7 +144,7 @@ app.post('/api/orders',asyncRoute(async(req,res)=>{
  let policy;
  try{policy=depositPolicy(dress.rentalPrice,body.kind,dress.replacementValue);}catch {res.status(422).json({error:'Cần xác nhận quy định cho mức giá đúng 300.000đ'});return;}
  const now=new Date(),orderId=randomUUID();
- const order:Order={_id:orderId,customerName:body.customerName,phone:body.phone,channel:body.channel,wearDay:body.wearDay,handoverDay,returnDay:body.returnDay,kind:body.kind,region:body.region,address:body.address,carrier:body.carrier,items:lines,preparation:body.preparation,paymentMethod:body.paymentMethod,rentTotal,depositRequired:policy.amount,depositDue:policy.due,identityRequired:policy.identityRequired,identityVerified:false,status:'CONFIRMED',createdAt:now,updatedAt:now};
+ const order:Order={_id:orderId,customerName:body.customerName,phone:body.phone,channel:body.channel,wearDay:body.wearDay,handoverDay,returnDay:body.returnDay,kind:body.kind,region:body.region,address:body.address,carrier:body.carrier,items:lines,preparation:body.preparation,paymentMethod:body.paymentMethod,rentTotal,finance:{rentPaid:0,depositPaid:0,depositRefunded:0},depositRequired:policy.amount,depositDue:policy.due,identityRequired:policy.identityRequired,identityVerified:false,status:'CONFIRMED',createdAt:now,updatedAt:now};
  try {
   await client.withSession(async session=>session.withTransaction(async()=>{
    await slots().insertMany(itemIds.flatMap(productId=>days.map(day=>({_id:productId+':'+day,productId,day,orderId}))),{session});
@@ -170,13 +170,26 @@ app.post('/api/orders/:id/payment',asyncRoute(async(req,res)=>{
  const input=z.object({kind:z.enum(['RENT','DEPOSIT_COLLECT','DEPOSIT_REFUND']),amount:z.number().int().positive(),method:z.enum(['CASH','BANK_TRANSFER'])}).parse(req.body);
  const order=await orders().findOne({_id:orderId});
  if(!order){res.status(404).json({error:'Không thấy đơn'});return;}
- const existing=await payments().find({orderId}).toArray();
- const sum=(kind:Payment['kind'])=>existing.filter(p=>p.kind===kind).reduce((s,p)=>s+p.amount,0);
- const held=sum('DEPOSIT_COLLECT')-sum('DEPOSIT_REFUND');
- if(input.kind==='RENT' && sum('RENT')+input.amount>order.rentTotal){res.status(422).json({error:'Tiền thuê vượt số phải thu'});return;}
- if(input.kind==='DEPOSIT_COLLECT'&&(order.depositDue==='NONE'||sum('DEPOSIT_COLLECT')+input.amount>order.depositRequired||order.status!=='READY')){res.status(422).json({error:'Chưa tới lúc thu cọc hoặc số tiền cọc sai'});return;}
- if(input.kind==='DEPOSIT_REFUND'&&(order.status!=='RETURNED'&&order.status!=='COMPLETED'||input.amount>held)){res.status(422).json({error:'Chỉ hoàn cọc sau khi nhận và kiểm tra váy'});return;}
- await payments().insertOne({_id:randomUUID(),orderId,...input,createdAt:new Date()});
+ const f=order.finance??{rentPaid:0,depositPaid:0,depositRefunded:0};
+ if(input.kind==='RENT'&&(order.status==='CANCELED'||f.rentPaid+input.amount>order.rentTotal)){res.status(422).json({error:'Số tiền thuê không hợp lệ hoặc đơn đã hủy'});return;}
+ if(input.kind==='DEPOSIT_COLLECT'&&(order.depositDue==='NONE'||f.depositPaid+input.amount>order.depositRequired||order.status!=='READY')){res.status(422).json({error:'Chưa tới lúc thu cọc hoặc số tiền cọc sai'});return;}
+ if(input.kind==='DEPOSIT_REFUND'&&(!['RETURNED','COMPLETED'].includes(order.status)||f.depositRefunded+input.amount>f.depositPaid)){res.status(422).json({error:'Chỉ hoàn cọc đã thu sau khi nhận và kiểm tra váy'});return;}
+ const field=input.kind==='RENT'?'rentPaid':input.kind==='DEPOSIT_COLLECT'?'depositPaid':'depositRefunded';
+ try{
+  await client.withSession(async session=>session.withTransaction(async()=>{
+   // Compare-and-swap on the order serializes concurrent requests for the same money.
+   const outcome=await orders().updateOne({_id:orderId,status:order.status,finance:f},
+     {$set:{['finance.'+field]:f[field]+input.amount,updatedAt:new Date()}},{session});
+   if(!outcome.modifiedCount)throw new Error('PAYMENT_STATE_CHANGED');
+   await payments().insertOne({_id:randomUUID(),orderId,...input,createdAt:new Date()},{session});
+   await audits().insertOne({_id:randomUUID(),action:'PAYMENT_'+input.kind,orderId,details:{amount:input.amount,method:input.method},at:new Date()},{session});
+  }));
+ }catch(error){
+  if(error instanceof Error&&(error.message==='PAYMENT_STATE_CHANGED'||error.message.includes('Write conflict'))){
+    res.status(409).json({error:'Đơn đang có giao dịch khác. Vui lòng tải lại trước khi thu hoặc hoàn tiền'});return;
+  }
+  throw error;
+ }
  res.json({ok:true});
 }));
 app.post('/api/orders/:id/status',asyncRoute(async(req,res)=>{
