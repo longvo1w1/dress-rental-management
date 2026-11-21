@@ -136,10 +136,11 @@ app.post('/api/orders',asyncRoute(async(req,res)=>{
  if(items.length!==itemIds.length){res.status(400).json({error:'Có sản phẩm không còn hoạt động'});return;}
  const lines:Line[]=items.map(p=>({productId:p._id,name:p.name,category:p.category,rentalPrice:p.rentalPrice,replacementValue:p.replacementValue}));
  const rentTotal=lines.reduce((s,p)=>s+p.rentalPrice,0);
- const dressValue=lines.filter(x=>x.category==='DRESS').reduce((s,p)=>s+p.replacementValue,0);
- if(!dressValue){res.status(400).json({error:'Đơn cần có ít nhất một váy'});return;}
+ const dressLines=lines.filter(x=>x.category==='DRESS');
+ if(dressLines.length!==1){res.status(422).json({error:'Quy định nhiều váy trong một đơn chưa được xác nhận; hiện mỗi đơn chọn đúng một váy'});return;}
+ const dress=dressLines[0];
  let policy;
- try{policy=depositPolicy(rentTotal,body.kind,dressValue);}catch {res.status(422).json({error:'Cần xác nhận quy định cho mức giá đúng 300.000đ'});return;}
+ try{policy=depositPolicy(dress.rentalPrice,body.kind,dress.replacementValue);}catch {res.status(422).json({error:'Cần xác nhận quy định cho mức giá đúng 300.000đ'});return;}
  const now=new Date(),orderId=randomUUID();
  const order:Order={_id:orderId,customerName:body.customerName,phone:body.phone,channel:body.channel,wearDay:body.wearDay,handoverDay,returnDay:body.returnDay,kind:body.kind,region:body.region,address:body.address,carrier:body.carrier,items:lines,preparation:body.preparation,paymentMethod:body.paymentMethod,rentTotal,depositRequired:policy.amount,depositDue:policy.due,identityRequired:policy.identityRequired,identityVerified:false,status:'CONFIRMED',createdAt:now,updatedAt:now};
  try {
