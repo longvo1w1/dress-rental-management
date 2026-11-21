@@ -105,11 +105,9 @@ app.post('/api/products/:id/photo-signature',asyncRoute(async(req,res)=>{
  if(!(await products().findOne({_id:productId}))) {res.status(404).json({error:'Không tìm thấy sản phẩm'});return;}
  const {cloudName,apiKey,apiSecret}=cloudEnv(),timestamp=Math.floor(Date.now()/1000);
  const folder='dress-rental/products/'+productId;
- const signature=createHmac('sha1',apiSecret); // signature uses SHA-1 digest of canonical params + secret (not HMAC)
  const canonical='folder='+folder+'&timestamp='+timestamp;
  const {createHash}=await import('node:crypto');
  const signed=createHash('sha1').update(canonical+apiSecret).digest('hex');
- void signature;
  res.json({cloudName,apiKey,timestamp,folder,signature:signed,uploadUrl:'https://api.cloudinary.com/v1_1/'+cloudName+'/image/upload'});
 }));
 app.post('/api/products/:id/photos',asyncRoute(async(req,res)=>{
@@ -173,7 +171,7 @@ app.post('/api/orders/:id/payment',asyncRoute(async(req,res)=>{
  const sum=(kind:Payment['kind'])=>existing.filter(p=>p.kind===kind).reduce((s,p)=>s+p.amount,0);
  const held=sum('DEPOSIT_COLLECT')-sum('DEPOSIT_REFUND');
  if(input.kind==='RENT' && sum('RENT')+input.amount>order.rentTotal){res.status(422).json({error:'Tiền thuê vượt số phải thu'});return;}
- if(input.kind==='DEPOSIT_COLLECT'&&(order.depositDue==='NONE'||sum('DEPOSIT_COLLECT')+input.amount>order.depositRequired||order.kind==='PROVINCE'&&order.status!=='SHIPPED'||order.kind==='LOCAL'&&!['HANDED_OVER','RETURNED','COMPLETED'].includes(order.status))){res.status(422).json({error:'Chưa tới lúc thu cọc hoặc số tiền cọc sai'});return;}
+ if(input.kind==='DEPOSIT_COLLECT'&&(order.depositDue==='NONE'||sum('DEPOSIT_COLLECT')+input.amount>order.depositRequired||order.status!=='READY')){res.status(422).json({error:'Chưa tới lúc thu cọc hoặc số tiền cọc sai'});return;}
  if(input.kind==='DEPOSIT_REFUND'&&(order.status!=='RETURNED'&&order.status!=='COMPLETED'||input.amount>held)){res.status(422).json({error:'Chỉ hoàn cọc sau khi nhận và kiểm tra váy'});return;}
  await payments().insertOne({_id:randomUUID(),orderId,...input,createdAt:new Date()});
  res.json({ok:true});
@@ -190,7 +188,7 @@ app.post('/api/orders/:id/status',asyncRoute(async(req,res)=>{
  const sum=(kind:Payment['kind'])=>transactions.filter(p=>p.kind===kind).reduce((s,p)=>s+p.amount,0);
  if(['HANDED_OVER','SHIPPED'].includes(status)&&sum('RENT')<order.rentTotal){res.status(422).json({error:'Chưa thanh toán đủ tiền thuê'});return;}
  if(status==='HANDED_OVER'&&order.identityRequired&&!order.identityVerified){res.status(422).json({error:'Chưa xác nhận CCCD 2 mặt'});return;}
- // Shipping is marked before collecting province collateral; block final handover confirmation separately.
+ if(['HANDED_OVER','SHIPPED'].includes(status)&&order.depositRequired>0&&sum('DEPOSIT_COLLECT')<order.depositRequired){res.status(422).json({error:'Phải thu đủ cọc trước khi bàn giao hoặc gửi vận chuyển'});return;}
  if(status==='COMPLETED'&&(inspectionPassed!==true||sum('DEPOSIT_COLLECT')!==sum('DEPOSIT_REFUND'))){res.status(422).json({error:'Chưa kiểm tra đạt hoặc chưa hoàn đủ cọc'});return;}
  const result=await orders().updateOne({_id:orderId,status:order.status},{$set:{status,updatedAt:new Date()}});
  if(!result.modifiedCount){res.status(409).json({error:'Đơn vừa được thay đổi, vui lòng tải lại'});return;}
@@ -207,7 +205,9 @@ app.post('/api/orders/:id/identity-confirmation',asyncRoute(async(req,res)=>{
  res.json({ok:true});
 }));
 app.get('/api/dashboard/tomorrow',asyncRoute(async(req,res)=>{
- const tzDate=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+ const field=(type:string)=>parts.find(p=>p.type===type)?.value||'';
+ const tzDate=field('year')+'-'+field('month')+'-'+field('day');
  const day=shiftDay(tzDate,1);
  const docs=await orders().find({handoverDay:day,status:{$nin:['CANCELED','COMPLETED']}}).toArray();
  res.json({day,deliveries:docs.filter(x=>x.kind==='LOCAL'),dispatches:docs.filter(x=>x.kind==='PROVINCE'),preparation:docs.filter(x=>x.preparation.rewash||x.preparation.alteration||x.preparation.notes)});
