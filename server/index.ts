@@ -6,6 +6,7 @@ import { randomUUID, createHmac, scryptSync, timingSafeEqual } from 'node:crypto
 import {MongoClient, MongoServerError, type ClientSession, type Db} from 'mongodb';
 import {z, ZodError} from 'zod';
 import {dispatchDay,depositPolicy,occupiedDays,shiftDay,validDay,type Region} from '../shared/rules';
+import {registerIdentityRoutes} from './identity';
 
 const required=(name:string)=>{const value=process.env[name];if(!value)throw new Error('Missing env: '+name);return value;};
 const URI=required('MONGODB_URI');
@@ -82,6 +83,7 @@ app.use('/api',(req,res,next)=>{if(!authenticated(req)){res.status(401).json({er
  if(!['GET','HEAD','OPTIONS'].includes(req.method)&&(req.get('origin')!==FRONTEND_URL||req.get('x-requested-with')!=='dress-rental')){res.status(403).json({error:'Nguồn yêu cầu không hợp lệ'});return;}
  next();
 });
+registerIdentityRoutes(app,db);
 app.get('/api/products',asyncRoute(async(req,res)=>{
  const q=String(req.query.q||'').toLowerCase();
  const items=await products().find({status:{$ne:'RETIRED'}}).sort({createdAt:-1}).toArray();
@@ -195,14 +197,6 @@ app.post('/api/orders/:id/status',asyncRoute(async(req,res)=>{
  if(!result.modifiedCount){res.status(409).json({error:'Đơn vừa được thay đổi, vui lòng tải lại'});return;}
  if(status==='CANCELED')await slots().deleteMany({orderId});
  await audits().insertOne({_id:randomUUID(),action:'ORDER_STATUS_'+status,orderId,at:new Date()});
- res.json({ok:true});
-}));
-app.post('/api/orders/:id/identity-confirmation',asyncRoute(async(req,res)=>{
- const orderId=id.parse(req.params.id);
- const {frontChecked,backChecked}=z.object({frontChecked:z.literal(true),backChecked:z.literal(true)}).parse(req.body);
- const result=await orders().updateOne({_id:orderId,identityRequired:true},{$set:{identityVerified:frontChecked&&backChecked}});
- if(!result.matchedCount){res.status(404).json({error:'Đơn không yêu cầu xác nhận CCCD'});return;}
- await audits().insertOne({_id:randomUUID(),action:'IDENTITY_TWO_SIDES_VERIFIED',orderId,at:new Date()});
  res.json({ok:true});
 }));
 app.get('/api/dashboard/tomorrow',asyncRoute(async(req,res)=>{
