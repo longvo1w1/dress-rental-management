@@ -7,6 +7,7 @@ import {MongoClient, MongoServerError, type ClientSession, type Db} from 'mongod
 import {z, ZodError} from 'zod';
 import {dispatchDay,depositPolicy,occupiedDays,shiftDay,validDay,type Region} from '../shared/rules';
 import {registerIdentityRoutes} from './identity';
+import {registerReturnInspections} from './inspections';
 
 const required=(name:string)=>{const value=process.env[name];if(!value)throw new Error('Missing env: '+name);return value;};
 const URI=required('MONGODB_URI');
@@ -28,7 +29,7 @@ app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next();});
 let db!:Db;
 type Product = { _id:string, name:string, sku:string, category:'DRESS'|'SHOES'|'BAG'|'ACCESSORY', size?:string,color?:string,rentalPrice:number,replacementValue:number,photos:{publicId:string,url:string}[],status:'ACTIVE'|'MAINTENANCE'|'RETIRED',createdAt:Date };
 type Line = {productId:string,name:string,category:Product['category'],rentalPrice:number,replacementValue:number};
-type Order = {_id:string, customerName:string, phone:string, channel:'ONLINE'|'WALK_IN',wearDay:string,handoverDay:string,returnDay:string,kind:'LOCAL'|'PROVINCE',region?:Region,address?:string,carrier?:string,tracking?:string,items:Line[],preparation:{alteration:string,rewash:boolean,notes:string},paymentMethod:'CASH'|'BANK_TRANSFER',rentTotal:number,finance:{rentPaid:number,depositPaid:number,depositRefunded:number},depositRequired:number,depositDue:'NONE'|'PICKUP'|'DISPATCH',identityRequired:boolean,identityVerified:boolean,status:'CONFIRMED'|'PREPARING'|'READY'|'HANDED_OVER'|'SHIPPED'|'RETURNED'|'COMPLETED'|'CANCELED',createdAt:Date, updatedAt:Date};
+type Order = {_id:string, customerName:string, phone:string, channel:'ONLINE'|'WALK_IN',wearDay:string,handoverDay:string,returnDay:string,kind:'LOCAL'|'PROVINCE',region?:Region,address?:string,carrier?:string,tracking?:string,items:Line[],preparation:{alteration:string,rewash:boolean,notes:string},paymentMethod:'CASH'|'BANK_TRANSFER',rentTotal:number,finance:{rentPaid:number,depositPaid:number,depositRefunded:number},depositRequired:number,depositDue:'NONE'|'PICKUP'|'DISPATCH',identityRequired:boolean,identityVerified:boolean,inspectionPassed?:boolean,status:'CONFIRMED'|'PREPARING'|'READY'|'HANDED_OVER'|'SHIPPED'|'RETURNED'|'COMPLETED'|'CANCELED',createdAt:Date, updatedAt:Date};
 type Slot={_id:string,orderId:string,productId:string,day:string};
 type Payment={_id:string,orderId:string,kind:'RENT'|'DEPOSIT_COLLECT'|'DEPOSIT_REFUND',amount:number,method:'CASH'|'BANK_TRANSFER',createdAt:Date};
 type Audit={_id:string,action:string,orderId?:string,details?:object,at:Date};
@@ -84,6 +85,7 @@ app.use('/api',(req,res,next)=>{if(!authenticated(req)){res.status(401).json({er
  next();
 });
 registerIdentityRoutes(app,()=>db);
+registerReturnInspections(app,()=>db);
 app.get('/api/products',asyncRoute(async(req,res)=>{
  const q=String(req.query.q||'').toLowerCase();
  const items=await products().find({status:{$ne:'RETIRED'}}).sort({createdAt:-1}).toArray();
@@ -205,7 +207,7 @@ app.post('/api/orders/:id/status',asyncRoute(async(req,res)=>{
  if(['HANDED_OVER','SHIPPED'].includes(status)&&sum('RENT')<order.rentTotal){res.status(422).json({error:'Chưa thanh toán đủ tiền thuê'});return;}
  if(status==='HANDED_OVER'&&order.identityRequired&&!order.identityVerified){res.status(422).json({error:'Chưa xác nhận CCCD 2 mặt'});return;}
  if(['HANDED_OVER','SHIPPED'].includes(status)&&order.depositRequired>0&&sum('DEPOSIT_COLLECT')<order.depositRequired){res.status(422).json({error:'Phải thu đủ cọc trước khi bàn giao hoặc gửi vận chuyển'});return;}
- if(status==='COMPLETED'&&(inspectionPassed!==true||sum('DEPOSIT_COLLECT')!==sum('DEPOSIT_REFUND'))){res.status(422).json({error:'Chưa kiểm tra đạt hoặc chưa hoàn đủ cọc'});return;}
+ if(status==='COMPLETED'&&(order.inspectionPassed!==true||sum('DEPOSIT_COLLECT')!==sum('DEPOSIT_REFUND'))){res.status(422).json({error:'Chưa kiểm tra đạt hoặc chưa hoàn đủ cọc'});return;}
  const result=await orders().updateOne({_id:orderId,status:order.status},{$set:{status,updatedAt:new Date()}});
  if(!result.modifiedCount){res.status(409).json({error:'Đơn vừa được thay đổi, vui lòng tải lại'});return;}
  if(status==='CANCELED')await slots().deleteMany({orderId});
