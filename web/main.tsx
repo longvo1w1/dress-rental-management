@@ -46,8 +46,11 @@ function App(){
  useEffect(()=>{
   if(!authenticated)return;
   let active=true;
-  const from=draft.kind==='PROVINCE'?dispatchDay(draft.wearDay,draft.region as Region):draft.handoverDay;
-  if(from>draft.returnDay){setAvailabilityError('Ngày trả phải từ ngày giao hoặc ngày gửi trở đi');return;}
+  let from:string;
+  try{from=draft.kind==='PROVINCE'?dispatchDay(draft.wearDay,draft.region as Region):draft.handoverDay;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(draft.returnDay))throw Error('Chọn ngày giao và ngày trả');
+  }catch{setAvailabilityError('Vui lòng chọn đầy đủ ngày mặc, ngày giao và ngày trả');setBusyProductIds([]);return;}
+  if(from>draft.returnDay){setAvailabilityError('Ngày trả phải từ ngày giao hoặc ngày gửi trở đi');setBusyProductIds([]);return;}
   send<{busyProductIds:string[]}>('/availability?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(draft.returnDay))
    .then(result=>{if(active){setBusyProductIds(result.busyProductIds);setAvailabilityError('')}})
    .catch(error=>{if(active){setBusyProductIds([]);setAvailabilityError((error as Error).message)}});
