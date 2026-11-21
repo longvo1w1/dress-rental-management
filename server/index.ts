@@ -83,7 +83,7 @@ app.use('/api',(req,res,next)=>{if(!authenticated(req)){res.status(401).json({er
  if(!['GET','HEAD','OPTIONS'].includes(req.method)&&(req.get('origin')!==FRONTEND_URL||req.get('x-requested-with')!=='dress-rental')){res.status(403).json({error:'Nguồn yêu cầu không hợp lệ'});return;}
  next();
 });
-registerIdentityRoutes(app,db);
+registerIdentityRoutes(app,()=>db);
 app.get('/api/products',asyncRoute(async(req,res)=>{
  const q=String(req.query.q||'').toLowerCase();
  const items=await products().find({status:{$ne:'RETIRED'}}).sort({createdAt:-1}).toArray();
