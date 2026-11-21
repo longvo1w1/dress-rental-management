@@ -128,6 +128,35 @@ app.post('/api/products/:id/photos',asyncRoute(async(req,res)=>{
  if(!result.matchedCount){res.status(409).json({error:'Sản phẩm không tồn tại hoặc ảnh đã lưu'});return;}
  res.json({ok:true});
 }));
+app.post('/api/products/:id/photos/reorder',asyncRoute(async(req,res)=>{
+ const productId=id.parse(req.params.id);
+ const {publicIds}=z.object({publicIds:z.array(z.string().min(1)).max(30)}).parse(req.body);
+ const product=await products().findOne({_id:productId});
+ if(!product){res.status(404).json({error:'Không tìm thấy sản phẩm'});return;}
+ const current=product.photos.map(x=>x.publicId);
+ if(publicIds.length!==current.length||new Set(publicIds).size!==current.length||current.some(x=>!publicIds.includes(x))){
+  res.status(422).json({error:'Danh sách ảnh không khớp'});return;
+ }
+ const ordered=publicIds.map(key=>product.photos.find(p=>p.publicId===key)!);
+ await products().updateOne({_id:productId},{$set:{photos:ordered}});
+ res.json({ok:true});
+}));
+app.post('/api/products/:id/photos/remove',asyncRoute(async(req,res)=>{
+ const productId=id.parse(req.params.id);
+ const {publicId}=z.object({publicId:z.string().min(1).max(350)}).parse(req.body);
+ const product=await products().findOne({_id:productId});
+ if(!product||!product.photos.some(p=>p.publicId===publicId)){res.status(404).json({error:'Ảnh không còn tồn tại'});return;}
+ const {cloudName,apiKey,apiSecret}=cloudEnv();
+ const timestamp=Math.floor(Date.now()/1000);
+ const {createHash}=await import('node:crypto');
+ const signature=createHash('sha1').update('public_id='+publicId+'&timestamp='+timestamp+apiSecret).digest('hex');
+ const form=new URLSearchParams({public_id:publicId,timestamp:String(timestamp),api_key:apiKey,signature});
+ const response=await fetch('https://api.cloudinary.com/v1_1/'+encodeURIComponent(cloudName)+'/image/destroy',{method:'POST',body:form});
+ const result=await response.json() as {result?:string,error?:{message?:string}};
+ if(!response.ok||!['ok','not found'].includes(result.result||'')){res.status(502).json({error:'Không xóa được ảnh trên lưu trữ; dữ liệu chưa thay đổi'});return;}
+ await products().updateOne({_id:productId},{$pull:{photos:{publicId}}});
+ res.json({ok:true});
+}));
 app.post('/api/orders',asyncRoute(async(req,res)=>{
  const body=orderInput.parse(req.body);
  const itemIds=[...new Set(body.productIds)];
