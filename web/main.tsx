@@ -6,7 +6,7 @@ import './style.css';
 type Photo={publicId:string,url:string};
 type Product={_id:string,sku:string,name:string,category:'DRESS'|'SHOES'|'BAG'|'ACCESSORY',rentalPrice:number,replacementValue:number,photos:Photo[],size?:string,status:string};
 type Order={_id:string,customerName:string,phone:string,channel:'ONLINE'|'WALK_IN',wearDay:string,handoverDay:string,returnDay:string,kind:'LOCAL'|'PROVINCE',region?:string,address?:string,items:{productId:string,name:string,rentalPrice:number,category:string}[],rentTotal:number,depositRequired:number,depositDue:string,identityRequired:boolean,identityVerified:boolean,inspectionPassed?:boolean,preparation:{alteration:string,rewash:boolean,notes:string},paymentMethod:string,status:string};
-type Workboard={day:string,deliveries:Order[],dispatches:Order[],preparation:Order[]};
+type Workboard={day:string,deliveries:Order[],dispatches:Order[],preparation:Order[],overdueReturns:Order[],pendingRefunds:Order[]};
 type Financial={rentCollected:number,depositCollected:number,depositRefunded:number,depositOutstanding:number};
 const money=(value:number)=>value.toLocaleString('vi-VN')+'đ';
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -83,6 +83,8 @@ function App(){
      <h2>Giao / khách lấy tại shop</h2><OrderList items={work?.deliveries||[]} empty="Không có đơn phải giao ngày mai" />
      <h2>Đóng gói và gửi tỉnh</h2><OrderList items={work?.dispatches||[]} empty="Không có đơn tỉnh cần gửi ngày mai" />
      <h2>Bóp váy, giặt lại và ghi chú chuẩn bị</h2><OrderList items={work?.preparation||[]} empty="Không có ghi chú chuẩn bị cho đơn giao ngày mai" />
+     <h2>Đơn đã quá hạn trả</h2><OrderList items={work?.overdueReturns||[]} empty="Không có đơn quá hạn trả" />
+     <h2>Đơn đã nhận lại nhưng chưa hoàn hết cọc</h2><OrderList items={work?.pendingRefunds||[]} empty="Không có khoản cọc chờ hoàn" />
     </section>}
    {page==='products'&&<section className="content">
     <details className="panel"><summary><Plus size={16}/> Thêm sản phẩm</summary>
