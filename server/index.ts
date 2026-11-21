@@ -106,6 +106,12 @@ app.get('/api/products/:id/availability',asyncRoute(async(req,res)=>{
  res.json({available:conflicts.length===0,conflictingOrderIds:[...new Set(conflicts.map(c=>c.orderId))]});
 }));
 const cloudEnv=()=>({cloudName:required('CLOUDINARY_CLOUD_NAME'),apiKey:required('CLOUDINARY_API_KEY'),apiSecret:required('CLOUDINARY_API_SECRET')});
+app.get('/api/availability',asyncRoute(async(req,res)=>{
+ const from=DAY.parse(req.query.from),to=DAY.parse(req.query.to);
+ const days=occupiedDays(from,to);
+ const busyProductIds=await slots().distinct('productId',{day:{$in:days}});
+ res.json({from,to,busyProductIds});
+}));
 app.post('/api/products/:id/photo-signature',asyncRoute(async(req,res)=>{
  const productId=id.parse(req.params.id);
  if(!(await products().findOne({_id:productId}))) {res.status(404).json({error:'Không tìm thấy sản phẩm'});return;}
